@@ -1,0 +1,4 @@
+# Infinite Commit Machine — Enterprise Runtime Manifest
+# Python 3.12+ required.
+# Runtime dependencies: none (stdlib only).
+# Historical Persistence Engine ships with zero third-party packages by design.

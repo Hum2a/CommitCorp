@@ -1,0 +1,28 @@
+name: Lint & Configuration Compliance
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  lint:
+    name: Compile & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Byte-compile platform modules
+        run: python -m compileall -q commit_machine run.py scripts
+
+      - name: Validate enterprise configuration
+        run: python scripts/validate_config.py config.json
+
+      # Intentionally does NOT invoke the Historical Persistence Engine.
+      # Continuous Chronological Integration must never run in CI.

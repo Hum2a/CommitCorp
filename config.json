@@ -1,0 +1,22 @@
+{
+  "sleep_seconds": 60,
+  "push_every": 100,
+  "target_file": "generated/history.txt",
+  "enable_milestones": true,
+  "enable_dashboard": true,
+  "enable_random_messages": true,
+  "commit_message_mode": "random",
+  "enable_achievements": true,
+  "enable_lore": true,
+  "enable_board_minutes": true,
+  "enable_quarterly_reports": true,
+  "enable_annual_reports": true,
+  "enable_releases": true,
+  "repo_root": ".",
+  "state_file": "state/runtime_state.json",
+  "stats_file": "state/statistics.json",
+  "log_dir": "logs",
+  "push_enabled": true,
+  "failure_backoff_seconds": 30,
+  "max_failure_backoff_seconds": 300
+}
