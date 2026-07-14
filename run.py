@@ -19,6 +19,13 @@ from commit_machine.state import load_state
 from commit_machine.statistics import StatisticsService
 from commit_machine.version_manager import VersionManager
 
+# =============================================================================
+# Chronological cadence — edit this to set seconds between commits.
+# This overrides config.json "sleep_seconds" when running via run.py.
+# =============================================================================
+SECONDS_BETWEEN_COMMITS = 15
+
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -92,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _diag_from_config(config_path: Path) -> DiagnosticsService:
     cfg = load_config(config_path)
+    cfg.sleep_seconds = SECONDS_BETWEEN_COMMITS
     git = GitManager(cfg.repo_path())
     state = load_state(cfg.state_path())
     stats = StatisticsService(cfg.stats_path()).snapshot()
@@ -109,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Configuration compliance failure: {exc}", file=sys.stderr)
         return 2
 
+    cfg.sleep_seconds = SECONDS_BETWEEN_COMMITS
     setup_logging(cfg.log_path())
 
     # Read-only / diagnostic commands (no orchestrator loop)
@@ -130,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         config_path,
         dry_run=args.dry_run,
         show_dashboard=True if args.dashboard and not args.once else None,
+        sleep_seconds_override=SECONDS_BETWEEN_COMMITS,
     )
 
     if args.reset:

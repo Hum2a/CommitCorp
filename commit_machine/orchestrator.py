@@ -51,13 +51,17 @@ class Orchestrator:
         *,
         dry_run: bool = False,
         show_dashboard: bool | None = None,
+        sleep_seconds_override: int | None = None,
     ) -> None:
         self.config_path = Path(config_path)
         self.hot = HotReloadConfig(self.config_path)
         self.dry_run = dry_run
         self._show_dashboard_override = show_dashboard
+        self._sleep_seconds_override = sleep_seconds_override
 
         cfg = self.hot.config
+        if sleep_seconds_override is not None:
+            cfg.sleep_seconds = sleep_seconds_override
         self.repo_root = cfg.repo_path()
         self.git = GitManager(self.repo_root, dry_run=dry_run)
         self.state = load_state(cfg.state_path())
@@ -131,6 +135,8 @@ class Orchestrator:
 
     def run_once(self) -> CycleResult:
         cfg = self.hot.maybe_reload()
+        if self._sleep_seconds_override is not None:
+            cfg.sleep_seconds = self._sleep_seconds_override
         self.scheduler.update_from_config(
             cfg.sleep_seconds,
             cfg.failure_backoff_seconds,
