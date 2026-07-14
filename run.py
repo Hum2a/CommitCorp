@@ -23,7 +23,7 @@ from commit_machine.version_manager import VersionManager
 # Chronological cadence — edit this to set seconds between commits.
 # This overrides config.json "sleep_seconds" when running via run.py.
 # =============================================================================
-SECONDS_BETWEEN_COMMITS = 1
+SECONDS_BETWEEN_COMMITS = 0
 
 
 
