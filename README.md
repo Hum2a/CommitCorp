@@ -1,6 +1,6 @@
 # Infinite Commit Machine
 
-<!-- ICM_VERSION -->**v0.0.7** — Pre-Historical Bootstrap<!-- /ICM_VERSION -->
+<!-- ICM_VERSION -->**v0.0.8** — Pre-Historical Bootstrap<!-- /ICM_VERSION -->
 
 **CommitCorp Enterprise**  
 Autonomous Historical Expansion Platform  
