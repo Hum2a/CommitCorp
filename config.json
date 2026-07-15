@@ -1,7 +1,15 @@
 {
   "sleep_seconds": 60,
   "push_every": 100,
+  "commits_per_cycle": 5,
   "target_file": "generated/history.txt",
+  "target_files": [
+    "generated/history.txt",
+    "generated/chronology.txt",
+    "generated/ledger.txt",
+    "generated/expansion.txt",
+    "generated/continuity.txt"
+  ],
   "enable_milestones": true,
   "enable_dashboard": true,
   "enable_random_messages": true,

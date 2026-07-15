@@ -16,6 +16,20 @@ class ConfigTests(unittest.TestCase):
         cfg = load_config(root / "config.json")
         self.assertGreaterEqual(cfg.sleep_seconds, 0)
         self.assertGreaterEqual(cfg.push_every, 1)
+        self.assertEqual(cfg.commits_per_cycle, 5)
+        self.assertEqual(len(cfg.batch_target_files()), 5)
+
+    def test_batch_target_files_pads_pool(self) -> None:
+        from commit_machine.config import AppConfig
+
+        cfg = AppConfig(
+            commits_per_cycle=3,
+            target_files=["generated/a.txt", "generated/b.txt"],
+        )
+        self.assertEqual(
+            cfg.batch_target_files(),
+            ["generated/a.txt", "generated/b.txt", "generated/a.txt"],
+        )
 
     def test_invalid_push_every(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

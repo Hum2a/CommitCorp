@@ -40,6 +40,9 @@ class CycleResult:
     message: str
     revision: int
     celebration: str | None = None
+    batch_size: int = 1
+    messages: list[str] | None = None
+    files: list[str] | None = None
 
 
 class Orchestrator:
@@ -52,16 +55,25 @@ class Orchestrator:
         dry_run: bool = False,
         show_dashboard: bool | None = None,
         sleep_seconds_override: int | None = None,
+        commits_per_cycle_override: int | None = None,
+        target_files_override: list[str] | None = None,
     ) -> None:
         self.config_path = Path(config_path)
         self.hot = HotReloadConfig(self.config_path)
         self.dry_run = dry_run
         self._show_dashboard_override = show_dashboard
         self._sleep_seconds_override = sleep_seconds_override
+        self._commits_per_cycle_override = commits_per_cycle_override
+        self._target_files_override = target_files_override
 
         cfg = self.hot.config
         if sleep_seconds_override is not None:
             cfg.sleep_seconds = sleep_seconds_override
+        if commits_per_cycle_override is not None:
+            cfg.commits_per_cycle = commits_per_cycle_override
+        if target_files_override is not None:
+            cfg.target_files = list(target_files_override)
+            cfg.target_file = target_files_override[0]
         self.repo_root = cfg.repo_path()
         self.git = GitManager(self.repo_root, dry_run=dry_run)
         self.state = load_state(cfg.state_path())
@@ -133,10 +145,19 @@ class Orchestrator:
                 save_state(self.config.state_path(), self.state)
                 self.scheduler.wait_failure()
 
-    def run_once(self) -> CycleResult:
-        cfg = self.hot.maybe_reload()
+    def _apply_runtime_overrides(self, cfg: AppConfig) -> AppConfig:
         if self._sleep_seconds_override is not None:
             cfg.sleep_seconds = self._sleep_seconds_override
+        if self._commits_per_cycle_override is not None:
+            cfg.commits_per_cycle = self._commits_per_cycle_override
+        if self._target_files_override is not None:
+            cfg.target_files = list(self._target_files_override)
+            cfg.target_file = self._target_files_override[0]
+        return cfg
+
+    def run_once(self) -> CycleResult:
+        """Run one batch: N separate commits to N different files, full pipeline each."""
+        cfg = self._apply_runtime_overrides(self.hot.maybe_reload())
         self.scheduler.update_from_config(
             cfg.sleep_seconds,
             cfg.failure_backoff_seconds,
@@ -151,85 +172,108 @@ class Orchestrator:
                 f"{health.render()}"
             )
 
-        previous_count = self.state.total_commits
-        # Prefer git count when available for alignment after external commits
         git_count = self.git.commit_count()
         if git_count > self.state.total_commits:
             self.state.total_commits = git_count
 
-        next_revision = self.state.total_commits + 1
-        version = self.versions.from_commits(next_revision)
-        entropy_report = self.entropy.evaluate(
-            total_commits=next_revision,
-            revision=next_revision,
+        targets = cfg.batch_target_files()
+        batch_messages: list[str] = []
+        celebration: str | None = None
+        last_entropy = self.entropy.evaluate(
+            total_commits=self.state.total_commits,
+            revision=self.state.total_commits,
             mood=self.state.last_mood,
             session_commits=self.state.session_commits,
         )
-        content, mood = self.files.write(
-            cfg.target_path(),
-            revision=next_revision,
-            entropy=entropy_report,
-            version=version.label,
-        )
-        self.state.last_mood = mood
-        newlines = self.files.newline_count(content)
+        last_revision = self.state.total_commits
+        last_message = ""
 
-        message = self.messages.next_message(rng_choice=self._rng.choice)
-        self.state.message_index = self.messages.index
-
-        # Stage target file; also stage governance artefacts updated this cycle
-        # after commit we may update more files — commit history file first,
-        # then governance may dirty tree for next cycle (acceptable).
-        # For atomic satire: stage history file only for the primary commit.
-        rel_target = str(cfg.target_path().relative_to(self.repo_root))
-        if not self.dry_run:
-            self.git.add(rel_target)
-        committed = self.git.commit(message)
-        if not committed and not self.dry_run:
-            raise GitError("Commit skipped; chronology not advanced")
-
-        self.state.total_commits = next_revision
-        self.state.session_commits += 1
-        self.state.commits_since_push += 1
-        self.state.current_streak += 1
-        self.state.longest_streak = max(
-            self.state.longest_streak, self.state.current_streak
-        )
-        self.state.total_newlines_produced += newlines
-        self.state.last_commit_at = datetime.now(timezone.utc).isoformat()
-        self.state.current_version = version.label
-
-        self.stats_service.record_commit(
-            self.state,
-            newlines=newlines,
-            entropy_score=entropy_report.score,
-        )
-
-        celebration: str | None = None
-        if cfg.enable_achievements:
-            self.achievements.evaluate(self.state)
-        if cfg.enable_milestones:
-            self.milestones.check(self.state.total_commits)
-        if cfg.enable_lore:
-            self.lore.evaluate(self.state)
-        if cfg.enable_board_minutes:
-            self.board.append(self.state)
-        if cfg.enable_quarterly_reports:
-            self.qbr.write(self.state)
-        if cfg.enable_annual_reports:
-            self.annual.write(self.state)
-            self.shareholders.write(self.state)
-
-        bump = self.releases.process(
-            self.state,
-            previous_count,
-            enabled=cfg.enable_releases,
-        )
-        if bump and bump.kind != "none":
-            celebration = self.releases.celebration_text(
-                bump.current, self.state.total_commits
+        for relative_path in targets:
+            previous_count = self.state.total_commits
+            next_revision = self.state.total_commits + 1
+            version = self.versions.from_commits(next_revision)
+            entropy_report = self.entropy.evaluate(
+                total_commits=next_revision,
+                revision=next_revision,
+                mood=self.state.last_mood,
+                session_commits=self.state.session_commits,
             )
-            logger.info("\n%s", celebration)
+            last_entropy = entropy_report
+            target_path = cfg.resolve_path(relative_path)
+            content, mood = self.files.write(
+                target_path,
+                revision=next_revision,
+                entropy=entropy_report,
+                version=version.label,
+                stream_name=Path(relative_path).stem,
+            )
+            self.state.last_mood = mood
+            newlines = self.files.newline_count(content)
+
+            message = self.messages.next_message(rng_choice=self._rng.choice)
+            self.state.message_index = self.messages.index
+            batch_messages.append(message)
+            last_message = message
+            last_revision = next_revision
+
+            rel_target = str(target_path.relative_to(self.repo_root))
+            if not self.dry_run:
+                self.git.add(rel_target)
+            committed = self.git.commit(message)
+            if not committed and not self.dry_run:
+                raise GitError(
+                    f"Commit skipped for {rel_target}; chronology not advanced"
+                )
+
+            self.state.total_commits = next_revision
+            self.state.session_commits += 1
+            self.state.commits_since_push += 1
+            self.state.current_streak += 1
+            self.state.longest_streak = max(
+                self.state.longest_streak, self.state.current_streak
+            )
+            self.state.total_newlines_produced += newlines
+            self.state.last_commit_at = datetime.now(timezone.utc).isoformat()
+            self.state.current_version = version.label
+
+            self.stats_service.record_commit(
+                self.state,
+                newlines=newlines,
+                entropy_score=entropy_report.score,
+            )
+
+            if cfg.enable_achievements:
+                self.achievements.evaluate(self.state)
+            if cfg.enable_milestones:
+                self.milestones.check(self.state.total_commits)
+            if cfg.enable_lore:
+                self.lore.evaluate(self.state)
+            if cfg.enable_board_minutes:
+                self.board.append(self.state)
+            if cfg.enable_quarterly_reports:
+                self.qbr.write(self.state)
+            if cfg.enable_annual_reports:
+                self.annual.write(self.state)
+                self.shareholders.write(self.state)
+
+            bump = self.releases.process(
+                self.state,
+                previous_count,
+                enabled=cfg.enable_releases,
+            )
+            if bump and bump.kind != "none":
+                celebration = self.releases.celebration_text(
+                    bump.current, self.state.total_commits
+                )
+                logger.info("\n%s", celebration)
+
+            logger.info(
+                "Enterprise Timestamp Office: batch unit complete "
+                "(%s -> rev %s). %s",
+                rel_target,
+                next_revision,
+                self.motivation.pep_talk(),
+            )
 
         pushed = False
         if (
@@ -238,12 +282,7 @@ class Orchestrator:
         ):
             pushed = self.push_now()
 
-        # Stage governance file changes into a follow-up is intentionally
-        # deferred — next cycle's history commit may include them if desired.
-        # For cleanliness, stage and amend is forbidden; leave for next cycle
-        # or commit alongside via add of reports if they changed.
         self._stage_sidecar_artefacts()
-
         save_state(cfg.state_path(), self.state)
 
         show_dash = (
@@ -254,22 +293,26 @@ class Orchestrator:
         if show_dash:
             self._refresh_dashboard(
                 health.grade,
-                entropy_report.historical_confidence,
-                entropy_report.git_satisfaction,
-                entropy_report.score,
+                last_entropy.historical_confidence,
+                last_entropy.git_satisfaction,
+                last_entropy.score,
             )
 
         logger.info(
-            "Enterprise Timestamp Office: cycle complete (rev %s). %s",
-            next_revision,
-            self.motivation.pep_talk(),
+            "Chronological Operations Division: batch of %s commits complete "
+            "(head rev %s).",
+            len(targets),
+            last_revision,
         )
         return CycleResult(
             committed=True,
             pushed=pushed,
-            message=message,
-            revision=next_revision,
+            message=last_message,
+            revision=last_revision,
             celebration=celebration,
+            batch_size=len(targets),
+            messages=batch_messages,
+            files=targets,
         )
 
     def _stage_sidecar_artefacts(self) -> None:

@@ -87,6 +87,7 @@ class FileGenerator:
         entropy: EntropyReport,
         mood: str | None = None,
         version: str = "v0.0.0",
+        stream_name: str = "history",
     ) -> str:
         mood = mood or self.choose_mood()
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -98,8 +99,13 @@ class FileGenerator:
         # Slight content drift: variable blank lines and a rotating footnote
         spacer = "\n" * self._rng.randint(1, 3)
         footnote_id = self._rng.randint(1000, 9999)
+        title = f"Repository Expansion Report — {stream_name.title()}"
 
-        return f"""Repository Expansion Report
+        return f"""{title}
+
+Historical Stream
+
+{stream_name}
 
 Historical Revision
 
@@ -168,14 +174,17 @@ CommitCorp Enterprise
         entropy: EntropyReport,
         mood: str | None = None,
         version: str = "v0.0.0",
+        stream_name: str | None = None,
     ) -> tuple[str, str]:
         """Write history file. Returns (content, mood)."""
         mood = mood or self.choose_mood()
+        stream = stream_name or path.stem
         content = self.render(
             revision=revision,
             entropy=entropy,
             mood=mood,
             version=version,
+            stream_name=stream,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")

@@ -20,6 +20,8 @@ class AppConfig:
     sleep_seconds: int = 60
     push_every: int = 100
     target_file: str = "generated/history.txt"
+    target_files: list[str] | None = None
+    commits_per_cycle: int = 1
     enable_milestones: bool = True
     enable_dashboard: bool = True
     enable_random_messages: bool = True
@@ -46,6 +48,23 @@ class AppConfig:
         if path.is_absolute():
             return path
         return self.repo_path() / path
+
+    def resolve_path(self, relative: str) -> Path:
+        path = Path(relative)
+        if path.is_absolute():
+            return path
+        return self.repo_path() / path
+
+    def batch_target_files(self) -> list[str]:
+        """Return the list of files to commit in one cycle (one commit each)."""
+        files = list(self.target_files) if self.target_files else [self.target_file]
+        if not files:
+            files = ["generated/history.txt"]
+        n = max(1, int(self.commits_per_cycle))
+        if len(files) >= n:
+            return files[:n]
+        # Repeat the pool if fewer files than requested commits
+        return [files[i % len(files)] for i in range(n)]
 
     def state_path(self) -> Path:
         path = Path(self.state_file)
@@ -80,6 +99,16 @@ def _validate(data: dict[str, Any]) -> None:
         )
     if "target_file" in data and not isinstance(data["target_file"], str):
         raise ConfigError("target_file must be a string")
+    if "commits_per_cycle" in data and (
+        not isinstance(data["commits_per_cycle"], int)
+        or data["commits_per_cycle"] < 1
+    ):
+        raise ConfigError("commits_per_cycle must be a positive integer")
+    if "target_files" in data and data["target_files"] is not None:
+        if not isinstance(data["target_files"], list) or not all(
+            isinstance(item, str) for item in data["target_files"]
+        ):
+            raise ConfigError("target_files must be a list of strings")
 
 
 def config_from_dict(data: dict[str, Any]) -> AppConfig:

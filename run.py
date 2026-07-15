@@ -20,10 +20,22 @@ from commit_machine.statistics import StatisticsService
 from commit_machine.version_manager import VersionManager
 
 # =============================================================================
-# Chronological cadence — edit this to set seconds between commits.
-# This overrides config.json "sleep_seconds" when running via run.py.
+# Chronological cadence — edit these to control batch timing and size.
+# These override config.json when running via run.py.
 # =============================================================================
 SECONDS_BETWEEN_COMMITS = 0
+
+# How many separate commits to create each cycle (each to a different file).
+COMMITS_PER_CYCLE = 5
+
+# One file per commit in the batch. Length should match COMMITS_PER_CYCLE.
+TARGET_FILES = [
+    "generated/history.txt",
+    "generated/chronology.txt",
+    "generated/ledger.txt",
+    "generated/expansion.txt",
+    "generated/continuity.txt",
+]
 
 
 
@@ -140,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         show_dashboard=True if args.dashboard and not args.once else None,
         sleep_seconds_override=SECONDS_BETWEEN_COMMITS,
+        commits_per_cycle_override=COMMITS_PER_CYCLE,
+        target_files_override=TARGET_FILES,
     )
 
     if args.reset:
@@ -173,19 +187,11 @@ def main(argv: list[str] | None = None) -> int:
         # for safety when only --dry-run is passed.
         if args.dry_run and not args.once and _only_dry_run(argv):
             result = orch.run_once()
-            print(
-                f"[DRY-RUN] Simulated revision {result.revision}: {result.message}"
-            )
+            _print_cycle_result(result, dry_run=True)
             return 0
         if args.once:
             result = orch.run_once()
-            mode = "DRY-RUN " if args.dry_run else ""
-            print(
-                f"{mode}Chronology advanced to revision {result.revision}: "
-                f"{result.message}"
-            )
-            if result.celebration:
-                print(result.celebration)
+            _print_cycle_result(result, dry_run=args.dry_run)
             return 0
 
     # Infinite loop
@@ -201,6 +207,21 @@ def _only_dry_run(argv: list[str] | None) -> bool:
     """True when user passed --dry-run without --once (safe default: single cycle)."""
     tokens = list(argv or sys.argv[1:])
     return "--dry-run" in tokens and "--once" not in tokens
+
+
+def _print_cycle_result(result, *, dry_run: bool = False) -> None:
+    prefix = "[DRY-RUN] " if dry_run else ""
+    print(
+        f"{prefix}Batch complete: {result.batch_size} commit(s); "
+        f"head revision {result.revision}"
+    )
+    files = result.files or []
+    messages = result.messages or [result.message]
+    for index, message in enumerate(messages):
+        target = files[index] if index < len(files) else "?"
+        print(f"  {index + 1}. {target} -> {message}")
+    if result.celebration:
+        print(result.celebration)
 
 
 if __name__ == "__main__":
